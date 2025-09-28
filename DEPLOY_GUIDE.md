@@ -72,7 +72,7 @@ aws secretsmanager create-secret \
 SCRIPT_SOURCE_URL="https://raw.githubusercontent.com/shinkawamisaki/checkRisk/e3965152e0ee1ea80f10582e41e766dda30f3edd/checkRisk.sh"
 
 # (任意) GPT要約機能を有効にします。"true" を設定します。
-# POLISH_WITH_OPENAI="true"
+# POLISH_WITH_OPENAI="1"
 
 # (任意) 手順2でデフォルト以外のシークレット名を使った場合は、ここで上書きします。
 # SLACK_SECRET_NAME="my-slack-secret"
