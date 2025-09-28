@@ -1,3 +1,10 @@
+> **注意:** `SCRIPT_SOURCE_URL` で指定するシェルスクリプトは**別リポジトリの外部資産**です。 利用前に必ず当該スクリプトのライセンスを確認し、条件に従ってください。
+
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2025 Shinkawa
+-->
+
 # AWS Risk Weekly (CDK) – デプロイガイド
 
 このリポジトリは、指定したシェルスクリプト（例: `checkRisk.sh`）を**週次**で実行し、結果を S3 に保存し、Slack に要約を通知するワークフローを **AWS CDK** で構築します。実行フローは **EventBridge → CodeBuild → S3 → Lambda(→ Slack)** のシンプルな構成です。

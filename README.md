@@ -1,3 +1,8 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2025 Shinkawa
+-->
+
 # AWSリスク週次レポート Slack通知システム
 
 ## 概要
@@ -30,7 +35,16 @@
 
 このように「現状の要件に最適化しつつ、将来の拡張に備える」ことを意識した設計になっています。
 
+## Third-Party / External Scripts
+
+This system can execute an external shell script specified via `SCRIPT_SOURCE_URL`
+(for example, a separate repository’s `checkRisk.sh`). That script is **not**
+distributed with this repository. Please review and comply with that script’s
+license before use.
+
 ## License
 
-This repository is licensed under the [Apache License 2.0](./LICENSE).  
-© 2025 Shinkawa.
+This repository (infrastructure code, Lambda code, and docs) is licensed under **Apache License 2.0** (see `./LICENSE`).
+
+*Note:* Any external script executed via `SCRIPT_SOURCE_URL` (e.g., `checkRisk.sh` in another repository) is licensed **separately** under its own terms.
+
