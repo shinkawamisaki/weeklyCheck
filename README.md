@@ -29,3 +29,8 @@
 - **詳細なデプロイ手順はこちら → [デプロイガイド (DEPLOY_GUIDE.md)](DEPLOY_GUIDE.md)**
 
 このように「現状の要件に最適化しつつ、将来の拡張に備える」ことを意識した設計になっています。
+
+## License
+
+This repository is licensed under the [Apache License 2.0](./LICENSE).  
+© 2025 Shinkawa.
