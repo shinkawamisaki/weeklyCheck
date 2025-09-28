@@ -37,10 +37,10 @@ aws secretsmanager create-secret   --name "github/pat"   --secret-string '{"toke
 
 ## 設定（環境変数）
 ソースコードの改変は不要です。**環境変数**（`.env` 推奨）で設定します。`.env` はリポジトリ直下または `checkrisk-cdk` ディレクトリに配置できます。
-添付のENVは
+- 添付のENVは
 「SCRIPT_SOURCE_URL="https://raw.githubusercontent.com/shinkawamisaki/checkRisk/e3965152e0ee1ea80f10582e41e766dda30f3edd/checkRisk.sh"」
 設定済みです
-GPT要約はオフ（0）です。
+- GPT要約はオフ（0）です。
 
 `.env` の例:
 ```
