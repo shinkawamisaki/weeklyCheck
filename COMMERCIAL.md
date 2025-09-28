@@ -15,4 +15,4 @@
 - 担当：Shinkawa
 
 ## お問い合わせ
-- Notionフォーム or Twitter DM or YOUTRUSTリンクなど
+- https://youtrust.jp/users/shinkawa
