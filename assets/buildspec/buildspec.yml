@@ -1,0 +1,36 @@
+version: 0.2
+env:
+  variables:
+    SRC_URL: ""
+    GITHUB_PAT_SECRET_NAME: ""
+    OPENAI_SECRET_NAME: ""
+phases:
+  install:
+    commands:
+      - apt-get update && apt-get install -y jq curl
+      - |
+        if [ -n "$GITHUB_PAT_SECRET_NAME" ]; then
+          if PAT_JSON=$(aws secretsmanager get-secret-value --secret-id "$GITHUB_PAT_SECRET_NAME" --query SecretString --output text 2>/dev/null); then
+            export AUTH_HEADER="Authorization: token $(echo "$PAT_JSON" | jq -r .token)"
+          else
+            echo "Optional secret $GITHUB_PAT_SECRET_NAME not found. Skipping."
+          fi
+        fi
+      - |
+        if [ -n "$OPENAI_SECRET_NAME" ]; then
+          if OAI_JSON=$(aws secretsmanager get-secret-value --secret-id "$OPENAI_SECRET_NAME" --query SecretString --output text 2>/dev/null); then
+            export OPENAI_API_KEY=$(echo "$OAI_JSON" | jq -r .OPENAI_API_KEY)
+          else
+            echo "Optional secret $OPENAI_SECRET_NAME not found. Skipping."
+          fi
+        fi
+  build:
+    commands:
+      - test -n "$SRC_URL" || { echo "SRC_URL is empty"; exit 2; }
+      - curl -fsSL -H "${AUTH_HEADER:-}" "$SRC_URL" -o checkRisk.sh
+      - chmod +x ./checkRisk.sh
+      - bash ./checkRisk.sh
+      - mv output/checkRiskReport_*.md .
+artifacts:
+  files:
+    - 'checkRiskReport_*.md'
