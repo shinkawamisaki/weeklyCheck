@@ -82,22 +82,17 @@ SCRIPT_SOURCE_URL="https://raw.githubusercontent.com/shinkawamisaki/checkRisk/e3
 
 ## 4. デプロイ
 
-1.  **ディレクトリへ移動**:
-    ```sh
-    cd checkrisk-cdk
-    ```
-
-2.  **依存関係のインストール**:
+1.  **依存関係のインストール**:
     ```sh
     npm install
     ```
 
-3.  **AWS環境のブートストラップ** (アカウント/リージョンごとに一度だけ実行):
+2.  **AWS環境のブートストラップ** (アカウント/リージョンごとに一度だけ実行):
     ```sh
     cdk bootstrap
     ```
 
-4.  **スタックのデプロイ**:
+3.  **スタックのデプロイ**:
     プロジェクトが `.env` ファイルを自動的に読み込むように設定されています。以下のコマンドを実行するだけです。
     ```sh
     cdk deploy
