@@ -1,3 +1,8 @@
+<!--
+SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+Copyright (c) 2025 Shinkawa
+-->
+
 # Third-Party / External Notices
 
 This project can execute an external shell script specified via `SCRIPT_SOURCE_URL`.
@@ -7,4 +12,3 @@ Example: `checkRisk.sh` (separate repository). That script is **not** distribute
 - Repository: <link-to-external-repo>
 - License: (see that repository). Review before use.
 
-This repository (infrastructure code, Lambda code, docs) is under Apache-2.0.

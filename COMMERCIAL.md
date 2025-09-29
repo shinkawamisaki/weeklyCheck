@@ -1,5 +1,9 @@
 <!--
-SPDX-License-Identifier: Apache-2.0
+SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+Copyright (c) 2025 Shinkawa
+-->
+
+<!--
 Copyright (c) 2025 Shinkawa
 -->
 
@@ -17,4 +21,3 @@ Copyright (c) 2025 Shinkawa
 - https://youtrust.jp/users/shinkawa
 
 
-> **注意:** 本リポジトリのコード（CDK / Lambda / ドキュメント）は Apache-2.0 です。 一方、運用時に実行する外部スクリプト（例: `checkRisk.sh`）は**別リポジトリ／別ライセンス**です。 導入支援・商用サービス提供時も、当該スクリプトのライセンスに従って取り扱ってください。

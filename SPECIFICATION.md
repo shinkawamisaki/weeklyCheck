@@ -1,5 +1,9 @@
 <!--
-SPDX-License-Identifier: Apache-2.0
+SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+Copyright (c) 2025 Shinkawa
+-->
+
+<!--
 Copyright (c) 2025 Shinkawa
 -->
 
@@ -174,4 +178,3 @@ Lambda関数によって送信されるSlack通知は、以下の仕様に基づ
     -   `### ■ 今すぐ対応 Top5 ■` という見出しでサマリーを生成するように指示します。
     -   **文字化けを防ぐため、AIが絵文字を一切使用しないように、明示的に指示しています。**
 
-> **External Script Notice:** `CodeBuildRunner` の `sourceUrl`（または `SCRIPT_SOURCE_URL`）で指定するスクリプトは、 本リポジトリとは**別ライセンス**の外部資産となり得ます。本リポの Apache-2.0 は当該スクリプトには自動的には及びません。

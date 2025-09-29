@@ -1,7 +1,11 @@
+<!--
+SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+Copyright (c) 2025 Shinkawa
+-->
+
 > **注意:** `SCRIPT_SOURCE_URL` で指定するシェルスクリプトは**別リポジトリの外部資産**です。 利用前に必ず当該スクリプトのライセンスを確認し、条件に従ってください。
 
 <!--
-SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2025 Shinkawa
 -->
 

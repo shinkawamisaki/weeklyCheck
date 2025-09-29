@@ -1,5 +1,9 @@
 <!--
-SPDX-License-Identifier: Apache-2.0
+SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+Copyright (c) 2025 Shinkawa
+-->
+
+<!--
 Copyright (c) 2025 Shinkawa
 -->
 
