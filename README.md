@@ -46,9 +46,5 @@ This system can execute an external shell script specified via `SCRIPT_SOURCE_UR
 distributed with this repository. Please review and comply with that script’s
 license before use.
 
-## License
-
-This repository (infrastructure code, Lambda code, and docs) is licensed under **Apache License 2.0** (see `./LICENSE`).
-
-*Note:* Any external script executed via `SCRIPT_SOURCE_URL` (e.g., `checkRisk.sh` in another repository) is licensed **separately** under its own terms.
-
+## ライセンス
+リポジトリ内の **LICENSE** をご確認ください。
