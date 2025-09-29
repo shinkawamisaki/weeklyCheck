@@ -37,8 +37,6 @@ Copyright (c) 2025 Shinkawa
 
 - **詳細なデプロイ手順はこちら → [デプロイガイド (DEPLOY_GUIDE.md)](DEPLOY_GUIDE.md)**
 
-このように「現状の要件に最適化しつつ、将来の拡張に備える」ことを意識した設計になっています。
-
 ## Third-Party / External Scripts
 
 This system can execute an external shell script specified via `SCRIPT_SOURCE_URL`
