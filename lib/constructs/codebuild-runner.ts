@@ -27,7 +27,8 @@ export interface CodeBuildRunnerProps {
 export class CodeBuildRunner extends Construct implements IRunner {
   public readonly startTarget: events.IRuleTarget;
   public readonly runnerName: string;
-  public readonly env: { [key: string]: string };
+  public readonly successEventPattern: events.EventPattern;
+  public readonly failureEventPattern: events.EventPattern;
 
   private readonly project: codebuild.Project;
 
@@ -96,14 +97,18 @@ export class CodeBuildRunner extends Construct implements IRunner {
       environmentVariables: environmentVariables,
     });
 
-    // Populate IRunner interface properties
+    // IRunner の実装: 起動ターゲットと、終了状態を表すイベントパターン
     this.startTarget = new targets.CodeBuildProject(this.project);
     this.runnerName = this.project.projectName;
-    this.env = Object.entries(environmentVariables).reduce((acc, [key, val]) => {
-      if (typeof val.value === 'string' && val.value) {
-        acc[key] = val.value;
-      }
-      return acc;
-    }, {} as { [key: string]: string });
+    const statePattern = (statuses: string[]): events.EventPattern => ({
+      source: ['aws.codebuild'],
+      detailType: ['CodeBuild Build State Change'],
+      detail: {
+        'build-status': statuses,
+        'project-name': [this.project.projectName],
+      },
+    });
+    this.successEventPattern = statePattern(['SUCCEEDED']);
+    this.failureEventPattern = statePattern(['FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT']);
   }
 }

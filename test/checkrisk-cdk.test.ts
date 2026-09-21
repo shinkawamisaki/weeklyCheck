@@ -1,6 +1,11 @@
 import * as cdk from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Construct } from 'constructs';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { CheckRiskStack, CheckRiskStackProps } from '../lib/checkrisk-cdk-stack';
+import { IRunner } from '../lib/constructs/runner';
+import { Scheduler } from '../lib/constructs/schedule';
 
 const SRC = 'https://raw.githubusercontent.com/example/checkRisk/0123456789abcdef/checkRisk.sh';
 
@@ -161,5 +166,28 @@ describe('レポート保管バケット', () => {
       VersioningConfiguration: { Status: 'Enabled' },
       BucketEncryption: Match.objectLike({}),
     });
+  });
+});
+
+describe('Runner の差し替え', () => {
+  /** CodeBuild ではない架空の Runner。IRunner を満たせば Scheduler はそのまま使える */
+  class StubRunner extends Construct implements IRunner {
+    readonly runnerName = 'stub-runner';
+    readonly startTarget: events.IRuleTarget = { bind: () => ({ id: '', arn: 'arn:aws:lambda:ap-northeast-1:123456789012:function:stub' }) };
+    readonly successEventPattern: events.EventPattern = { source: ['custom.stub'], detail: { result: ['ok'] } };
+    readonly failureEventPattern: events.EventPattern = { source: ['custom.stub'], detail: { result: ['ng'] } };
+  }
+
+  test('Scheduler は Runner のイベントパターンをそのまま使い、CodeBuild を前提にしない', () => {
+    const app = new cdk.App();
+    const stack = new cdk.Stack(app, 'RunnerSwapStack');
+    const fn = new lambda.Function(stack, 'Fn', {
+      runtime: lambda.Runtime.PYTHON_3_13, handler: 'index.handler', code: lambda.Code.fromInline('def handler(e, c): pass'),
+    });
+    new Scheduler(stack, 'Scheduler', { projectName: 'swap', runner: new StubRunner(stack, 'Stub'), notifierFunction: fn });
+    const t = Template.fromStack(stack);
+    t.hasResourceProperties('AWS::Events::Rule', { EventPattern: { source: ['custom.stub'], detail: { result: ['ok'] } } });
+    t.hasResourceProperties('AWS::Events::Rule', { EventPattern: { source: ['custom.stub'], detail: { result: ['ng'] } } });
+    expect(JSON.stringify(t.toJSON())).not.toContain('aws.codebuild');
   });
 });

@@ -39,31 +39,17 @@ export class Scheduler extends Construct {
         });
 
         // Rule 2: Runner 成功 → レポート通知
-        // Note: イベントパターンは CodeBuild 固有。別の Runner を使うときはここも差し替える
+        // イベントパターンは Runner 自身が持つ。Scheduler は CodeBuild か ECS かを知らない
         new events.Rule(this, 'OnSuccessRule', {
             ruleName: `${props.projectName}-on-success`,
-            eventPattern: {
-                source: ['aws.codebuild'],
-                detailType: ['CodeBuild Build State Change'],
-                detail: {
-                    'build-status': ['SUCCEEDED'],
-                    'project-name': [props.runner.runnerName],
-                },
-            },
+            eventPattern: props.runner.successEventPattern,
             targets: [notify('success')],
         });
 
         // Rule 3: Runner 失敗 → 「実行できませんでした」を通知（無通知＝正常、にしない）
         new events.Rule(this, 'OnFailureRule', {
             ruleName: `${props.projectName}-on-failure`,
-            eventPattern: {
-                source: ['aws.codebuild'],
-                detailType: ['CodeBuild Build State Change'],
-                detail: {
-                    'build-status': ['FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT'],
-                    'project-name': [props.runner.runnerName],
-                },
-            },
+            eventPattern: props.runner.failureEventPattern,
             targets: [notify('failure')],
         });
     }
