@@ -13,6 +13,10 @@ import { CheckRiskStack } from '../lib/checkrisk-cdk-stack';
 // (Required) The full, raw URL to your checkRisk.sh script on GitHub.
 const sourceUrl = process.env.SCRIPT_SOURCE_URL;
 
+// (Recommended) SHA-256 of that script. CodeBuild verifies the download against it before running.
+// Compute with: curl -fsSL "$SCRIPT_SOURCE_URL" | shasum -a 256
+const scriptSha256 = process.env.SCRIPT_SHA256?.trim().toLowerCase() || undefined;
+
 // (Optional) The name of the AWS Secrets Manager secret for Slack.
 // Defaults to 'slack/bot' if not set.
 const slackSecretName = process.env.SLACK_SECRET_NAME || 'slack/bot';
@@ -35,6 +39,9 @@ const polishWithOpenAi = /^(1|true)$/i.test(process.env.POLISH_WITH_OPENAI || ''
 if (!sourceUrl) {
   throw new Error('Mandatory environment variable SCRIPT_SOURCE_URL is not set. Please set it before deploying.');
 }
+if (scriptSha256 && !/^[0-9a-f]{64}$/.test(scriptSha256)) {
+  throw new Error('SCRIPT_SHA256 must be a 64-character hex SHA-256 digest.');
+}
 
 const app = new cdk.App();
 
@@ -44,6 +51,7 @@ new CheckRiskStack(app, 'CheckRiskStack', {
   
   // Pass the configured properties to the stack.
   sourceUrl: sourceUrl,
+  scriptSha256: scriptSha256,
   slackSecretName: slackSecretName,
   openAiSecretName: openAiSecretName,
   githubPatSecretName: githubPatSecretName,

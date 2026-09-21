@@ -91,9 +91,19 @@ describe('CodeBuild の権限と環境変数', () => {
     const project = Object.values(t.findResources('AWS::CodeBuild::Project'))[0] as any;
     const names = project.Properties.Environment.EnvironmentVariables.map((v: any) => v.Name);
     expect(names).toEqual(expect.arrayContaining(['REPORTS_BUCKET', 'SRC_URL']));
+    expect(names).not.toContain('SRC_SHA256');
     expect(names).not.toContain('OPENAI_SECRET_NAME');
     expect(names).not.toContain('GITHUB_PAT_SECRET_NAME');
     expect(names).not.toContain('POLISH_WITH_OPENAI');
+  });
+
+  test('SCRIPT_SHA256 を指定すると SRC_SHA256 として CodeBuild に渡る', () => {
+    const sha = 'a'.repeat(64);
+    const t = synth({ scriptSha256: sha });
+    const project = Object.values(t.findResources('AWS::CodeBuild::Project'))[0] as any;
+    const env = Object.fromEntries(project.Properties.Environment.EnvironmentVariables.map((v: any) => [v.Name, v.Value]));
+    expect(env.SRC_SHA256).toBe(sha);
+    expect(env.SRC_URL).toBe(SRC);
   });
 
   test('OpenAI 整形を有効にしたときだけ OpenAI シークレットの読取と環境変数が付く', () => {

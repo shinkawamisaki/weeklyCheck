@@ -14,6 +14,8 @@ export interface CodeBuildRunnerProps {
   projectName: string;
   /** 実行するスクリプトの Raw URL（コミット SHA かタグで固定すること） */
   sourceUrl: string;
+  /** sourceUrl のスクリプトの SHA-256（16 進 64 桁）。指定時はダウンロード後に照合し、不一致なら実行しない */
+  scriptSha256?: string;
   artifactBucket: s3.Bucket;
   /** OpenAI 整形を有効にする。有効なときだけ openAiSecretName の読取権限を付与する */
   polishWithOpenAi?: boolean;
@@ -66,6 +68,7 @@ export class CodeBuildRunner extends Construct implements IRunner {
     const environmentVariables: { [name: string]: codebuild.BuildEnvironmentVariable } = {
       REPORTS_BUCKET: { value: props.artifactBucket.bucketName },
       SRC_URL: { value: props.sourceUrl },
+      ...(props.scriptSha256 && { SRC_SHA256: { value: props.scriptSha256 } }),
       ...(props.githubPatSecretName && { GITHUB_PAT_SECRET_NAME: { value: props.githubPatSecretName } }),
       ...(usesOpenAi && {
         POLISH_WITH_OPENAI: { value: '1' },

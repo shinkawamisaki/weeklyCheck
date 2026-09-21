@@ -4,6 +4,7 @@ version: 0.2
 #
 # 環境変数（CDK が CodeBuild プロジェクトに設定する）
 #   SRC_URL                 実行するスクリプトの Raw URL（コミット SHA かタグで固定）
+#   SRC_SHA256              そのスクリプトの SHA-256。設定時はダウンロード後に照合し、不一致なら実行しない
 #   GITHUB_PAT_SECRET_NAME  私有リポジトリから取得する場合だけ。Secrets Manager のシークレット名
 #                           （値は PAT 文字列そのもの、または {"token": "..."} の JSON）
 #   POLISH_WITH_OPENAI      "1" なら checkRisk.sh が OpenAI で整形する
@@ -16,6 +17,7 @@ version: 0.2
 env:
   variables:
     SRC_URL: ""
+    SRC_SHA256: ""
     GITHUB_PAT_SECRET_NAME: ""
     POLISH_WITH_OPENAI: "0"
     OPENAI_SECRET_NAME: "openai/prod/key"
@@ -37,6 +39,13 @@ phases:
           unset RAW PAT   # スクリプト本体に PAT を引き継がない
         else
           curl -fsSL "$SRC_URL" -o checkRisk.sh
+        fi
+      # 取得したものが固定したコミットの内容そのものか確かめる（URL 先が差し替えられても実行しない）
+      - |
+        if [ -n "$SRC_SHA256" ]; then
+          echo "$SRC_SHA256  checkRisk.sh" | sha256sum -c - || { echo "checkRisk.sh の SHA-256 が SRC_SHA256 と一致しません。実行を中止します"; exit 3; }
+        else
+          echo "SRC_SHA256 が未設定のため完全性チェックを省略します（.env に SCRIPT_SHA256 を設定することを推奨）"
         fi
       - chmod +x ./checkRisk.sh
       - bash ./checkRisk.sh

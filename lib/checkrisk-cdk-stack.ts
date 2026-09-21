@@ -9,6 +9,8 @@ import { Scheduler } from './constructs/schedule';
 export interface CheckRiskStackProps extends cdk.StackProps {
   projectName?: string;
   sourceUrl: string;
+  /** sourceUrl のスクリプトの SHA-256。指定すると CodeBuild がダウンロード後に照合する */
+  scriptSha256?: string;
   slackSecretName: string;
   openAiSecretName?: string;
   githubPatSecretName?: string;
@@ -31,6 +33,7 @@ export class CheckRiskStack extends cdk.Stack {
       projectName: projectName,
       artifactBucket: storage.bucket,
       sourceUrl: props.sourceUrl,
+      scriptSha256: props.scriptSha256,
       polishWithOpenAi: props.polishWithOpenAi,
       openAiSecretName: props.openAiSecretName,
       githubPatSecretName: props.githubPatSecretName,
