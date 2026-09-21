@@ -114,4 +114,3 @@ npm run test:all
 ## ライセンス
 
 リポジトリ内の [LICENCE](LICENCE) をご確認ください（非商用限定。自社向け利用は可）。
-導入支援・カスタマイズについては [COMMERCIAL.md](COMMERCIAL.md) を参照してください。
