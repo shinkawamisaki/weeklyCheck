@@ -160,11 +160,37 @@ describe('CodeBuild の実行環境', () => {
 });
 
 describe('レポート保管バケット', () => {
-  test('バージョニングと SSE が有効', () => {
+  test('バージョニング・SSE・公開ブロックが有効で、既定 365 日でレポートを削除する', () => {
     const t = synth();
     t.hasResourceProperties('AWS::S3::Bucket', {
       VersioningConfiguration: { Status: 'Enabled' },
       BucketEncryption: Match.objectLike({}),
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      LifecycleConfiguration: { Rules: [Match.objectLike({ ExpirationInDays: 365, NoncurrentVersionExpiration: { NoncurrentDays: 30 }, Status: 'Enabled' })] },
+    });
+  });
+
+  test('TLS 以外のアクセスをバケットポリシーで拒否する', () => {
+    const t = synth();
+    t.hasResourceProperties('AWS::S3::BucketPolicy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } })]),
+      }),
+    });
+  });
+
+  test('既定では cdk destroy でバケットも中身も消える', () => {
+    const t = synth();
+    t.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Delete' });
+    t.resourceCountIs('Custom::S3AutoDeleteObjects', 1);
+  });
+
+  test('RETAIN_BUCKET を指定するとバケットを残し、保持日数も変えられる', () => {
+    const t = synth({ retainBucket: true, reportRetentionDays: 730 });
+    t.hasResource('AWS::S3::Bucket', { DeletionPolicy: 'Retain' });
+    t.resourceCountIs('Custom::S3AutoDeleteObjects', 0);
+    t.hasResourceProperties('AWS::S3::Bucket', {
+      LifecycleConfiguration: { Rules: [Match.objectLike({ ExpirationInDays: 730 })] },
     });
   });
 });

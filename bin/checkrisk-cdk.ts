@@ -33,6 +33,12 @@ const githubPatSecretName = process.env.GITHUB_PAT_SECRET_NAME || undefined;
 // Defaults to false if not set.
 const polishWithOpenAi = /^(1|true)$/i.test(process.env.POLISH_WITH_OPENAI || '');
 
+// (Optional) How many days to keep reports in S3. Defaults to 365.
+const reportRetentionDays = process.env.REPORT_RETENTION_DAYS ? Number(process.env.REPORT_RETENTION_DAYS) : undefined;
+
+// (Optional) Set to '1' or 'true' to keep the report bucket (and its contents) on `cdk destroy`.
+const retainBucket = /^(1|true)$/i.test(process.env.RETAIN_BUCKET || '');
+
 // ##################################################################
 
 // Validate that the mandatory SCRIPT_SOURCE_URL is provided.
@@ -41,6 +47,9 @@ if (!sourceUrl) {
 }
 if (scriptSha256 && !/^[0-9a-f]{64}$/.test(scriptSha256)) {
   throw new Error('SCRIPT_SHA256 must be a 64-character hex SHA-256 digest.');
+}
+if (reportRetentionDays !== undefined && !(Number.isInteger(reportRetentionDays) && reportRetentionDays > 0)) {
+  throw new Error('REPORT_RETENTION_DAYS must be a positive integer (days).');
 }
 
 const app = new cdk.App();
@@ -56,6 +65,8 @@ new CheckRiskStack(app, 'CheckRiskStack', {
   openAiSecretName: openAiSecretName,
   githubPatSecretName: githubPatSecretName,
   polishWithOpenAi: polishWithOpenAi,
+  reportRetentionDays: reportRetentionDays,
+  retainBucket: retainBucket,
 
   /* For deploying to a different AWS account and region: */
   /*

@@ -15,6 +15,10 @@ export interface CheckRiskStackProps extends cdk.StackProps {
   openAiSecretName?: string;
   githubPatSecretName?: string;
   polishWithOpenAi?: boolean;
+  /** レポートの保持日数（既定 365） */
+  reportRetentionDays?: number;
+  /** true なら cdk destroy でレポートバケットを残す */
+  retainBucket?: boolean;
 }
 
 export class CheckRiskStack extends cdk.Stack {
@@ -26,6 +30,8 @@ export class CheckRiskStack extends cdk.Stack {
     // 1. Create the Storage layer (S3 Bucket)
     const storage = new Storage(this, 'Storage', {
       projectName: projectName,
+      retentionDays: props.reportRetentionDays,
+      retain: props.retainBucket,
     });
 
     // 2. Create the Runner layer (CodeBuildRunner)
