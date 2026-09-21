@@ -44,16 +44,14 @@ GREETINGS = [
     "AWSです。今週もよろしくお願いします！",
 ]
 
-def pick_greeting(arr: list[str]) -> str:
-    '''JSTの1/1からの通算日を使って週ごとに1つ前進。24超えたら24を引く（=0..23でローテ）'''
-    today = datetime.now(ZoneInfo("Asia/Tokyo")).date()
-    yday = today.timetuple().tm_yday       # 1..366
-    quotient = (yday - 1) // 7             # ←「割れた数」
-    n = len(arr)                            # 24
-    while quotient >= n:                    # 24を引き続けて範囲内へ（= quotient % n）
-        quotient -= n
-    idx = quotient                          # 0..23
-    return arr[idx]
+GREETING_EPOCH = date(2025, 9, 29)  # 月曜日。ここから数えた週数で 24 本をローテーションする
+
+def pick_greeting(arr: list[str], today: date | None = None) -> str:
+    """固定の月曜日 (GREETING_EPOCH) からの経過週数で 1 つずつ進める。
+    年間通算日を使うと年末年始で同じ挨拶が続くため、暦年に依存しない基準日を使う。"""
+    today = today or datetime.now(ZoneInfo("Asia/Tokyo")).date()
+    weeks = (today - GREETING_EPOCH).days // 7
+    return arr[weeks % len(arr)]
 
 # ----- Slack / S3 helpers -----------------------------------------------------------
 def _slack():
@@ -96,8 +94,10 @@ def _extract_original_summary(md_bytes: bytes) -> list[str]:
 def _extract_top5_block(md_bytes: bytes) -> str:
     """###...今すぐ対応... セクション全体（見出し含む）を抽出。なければ空文字列"""
     text = md_bytes.decode("utf-8", errors="ignore")
-    # 正規表現: 「### ...今すぐ対応 Top5...」で始まる行から、次の「## 」で始まる行、またはファイルの終わりまでをマッチ
-    m = re.search(r"(^###\s.*今すぐ対応 Top5.*$[\s\S]*?)(?=^##\s|\Z)", text, re.MULTILINE)
+    # 「### … 今すぐ対応 … Top5 …」の見出し行から、次の「# 」「## 」見出しまたはファイル末尾までを抽出する。
+    # checkRisk の見出しは「### ■ 今すぐ対応 Top5 ■」（〜e396515）と「### 🔴 今すぐ対応（Top5）」（27c9a9c〜）の
+    # 2 種類があるため、「今すぐ対応」と「Top5」が同じ行にあれば一致させる。
+    m = re.search(r"(^###\s[^\n]*今すぐ対応[^\n]*Top5[^\n]*$[\s\S]*?)(?=^#{1,2}\s|\Z)", text, re.MULTILINE)
     if m:
         return m.group(1).strip()
     return ""

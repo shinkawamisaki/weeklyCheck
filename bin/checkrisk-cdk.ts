@@ -22,8 +22,8 @@ const slackSecretName = process.env.SLACK_SECRET_NAME || 'slack/bot';
 const openAiSecretName = process.env.OPENAI_SECRET_NAME || 'openai/prod/key';
 
 // (Optional) The name of the secret for your GitHub Personal Access Token (PAT).
-// Defaults to 'github/pat' if not set.
-const githubPatSecretName = process.env.GITHUB_PAT_SECRET_NAME || 'github/pat';
+// Only needed when the script lives in a private repository. Unset = no PAT lookup, no IAM grant.
+const githubPatSecretName = process.env.GITHUB_PAT_SECRET_NAME || undefined;
 
 // (Optional) Set to '1' or 'true' to enable OpenAI summary.
 // Defaults to false if not set.

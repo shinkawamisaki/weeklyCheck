@@ -31,10 +31,9 @@ export class CheckRiskStack extends cdk.Stack {
       projectName: projectName,
       artifactBucket: storage.bucket,
       sourceUrl: props.sourceUrl,
-      slackSecretName: props.slackSecretName,
+      polishWithOpenAi: props.polishWithOpenAi,
       openAiSecretName: props.openAiSecretName,
       githubPatSecretName: props.githubPatSecretName,
-      polishWithOpenAi: props.polishWithOpenAi,
     });
 
     // 3. Create the Notifier layer (Lambda)

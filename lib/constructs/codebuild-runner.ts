@@ -12,12 +12,14 @@ import { IRunner } from './runner';
 
 export interface CodeBuildRunnerProps {
   projectName: string;
+  /** 実行するスクリプトの Raw URL（コミット SHA かタグで固定すること） */
   sourceUrl: string;
   artifactBucket: s3.Bucket;
-  slackSecretName: string;
-  openAiSecretName?: string;
-  githubPatSecretName?: string;
+  /** OpenAI 整形を有効にする。有効なときだけ openAiSecretName の読取権限を付与する */
   polishWithOpenAi?: boolean;
+  openAiSecretName?: string;
+  /** 私有リポジトリから取得する場合の GitHub PAT シークレット名。未指定なら PAT は取得しない */
+  githubPatSecretName?: string;
 }
 
 export class CodeBuildRunner extends Construct implements IRunner {
@@ -39,32 +41,36 @@ export class CodeBuildRunner extends Construct implements IRunner {
 
     props.artifactBucket.grantReadWrite(codeBuildRole);
 
-    const secretArns = [
-      `arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.slackSecretName}-*`,
-    ];
-    if (props.openAiSecretName) {
+    // Secrets Manager の読取は「実際に使うシークレット」だけに絞る。
+    // Slack のシークレットは Notifier(Lambda) だけが読むので CodeBuild には付与しない。
+    const secretArns: string[] = [];
+    const usesOpenAi = !!(props.polishWithOpenAi && props.openAiSecretName);
+    if (usesOpenAi) {
       secretArns.push(`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.openAiSecretName}-*`);
     }
     if (props.githubPatSecretName) {
       secretArns.push(`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.githubPatSecretName}-*`);
     }
-
-    codeBuildRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: secretArns,
-    }));
+    if (secretArns.length > 0) {
+      codeBuildRole.addToPolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: secretArns,
+      }));
+    }
 
     const buildSpecAsset = new s3_assets.Asset(this, 'BuildSpecAsset', {
       path: path.join(__dirname, '../../assets/buildspec'),
     });
 
-    const environmentVariables = {
+    const environmentVariables: { [name: string]: codebuild.BuildEnvironmentVariable } = {
       REPORTS_BUCKET: { value: props.artifactBucket.bucketName },
       SRC_URL: { value: props.sourceUrl },
-      GITHUB_PAT_SECRET_NAME: { value: props.githubPatSecretName || '' },
-      OPENAI_SECRET_NAME: { value: props.openAiSecretName || '' },
-      ...(props.polishWithOpenAi && { POLISH_WITH_OPENAI: { value: '1' } }),
+      ...(props.githubPatSecretName && { GITHUB_PAT_SECRET_NAME: { value: props.githubPatSecretName } }),
+      ...(usesOpenAi && {
+        POLISH_WITH_OPENAI: { value: '1' },
+        OPENAI_SECRET_NAME: { value: props.openAiSecretName! },
+      }),
     };
 
     this.project = new codebuild.Project(this, 'CheckRiskProject', {
@@ -79,7 +85,6 @@ export class CodeBuildRunner extends Construct implements IRunner {
         path: '',
         includeBuildId: false,
         packageZip: false,
-
       }),
       environment: {
         buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
@@ -91,10 +96,10 @@ export class CodeBuildRunner extends Construct implements IRunner {
     this.startTarget = new targets.CodeBuildProject(this.project);
     this.runnerName = this.project.projectName;
     this.env = Object.entries(environmentVariables).reduce((acc, [key, val]) => {
-        if (val.value) {
-            acc[key] = val.value;
-        }
-        return acc;
+      if (typeof val.value === 'string' && val.value) {
+        acc[key] = val.value;
+      }
+      return acc;
     }, {} as { [key: string]: string });
   }
 }
