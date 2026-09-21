@@ -1,8 +1,12 @@
 # lambda_function.py
+# Slack 通知 Lambda。外部ライブラリを使わない（標準ライブラリ + Lambda 同梱の boto3 のみ）ので、
+# デプロイに Docker でのバンドルが要らない。
 import os, io, boto3, re, json
+import urllib.request
+import urllib.parse
+import urllib.error
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from slack_sdk import WebClient
 from botocore.exceptions import ClientError
 
 # ----- Env ---------------------------------------------------------------------------
@@ -56,12 +60,71 @@ def pick_greeting(arr: list[str], today: date | None = None) -> str:
     weeks = (today - GREETING_EPOCH).days // 7
     return arr[weeks % len(arr)]
 
-# ----- Slack / S3 helpers -----------------------------------------------------------
-def _slack():
+# ----- Slack（標準ライブラリだけの最小クライアント） ------------------------------------
+class SlackApiError(RuntimeError):
+    pass
+
+
+class SlackClient:
+    """slack_sdk の WebClient のうち、この Lambda が使う 2 メソッドだけを urllib で実装したもの。
+    メソッド名と引数は slack_sdk に合わせてある（chat_postMessage / files_upload_v2）。"""
+
+    def __init__(self, token: str, base_url: str = "https://slack.com/api/", timeout: int = 30):
+        self.token = token
+        self.base_url = base_url.rstrip("/") + "/"
+        self.timeout = timeout
+
+    def _api(self, method: str, *, json_body: dict | None = None, form: dict | None = None) -> dict:
+        headers = {"Authorization": f"Bearer {self.token}"}
+        if json_body is not None:
+            data = json.dumps(json_body).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+        else:
+            data = urllib.parse.urlencode(form or {}).encode("utf-8")
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        req = urllib.request.Request(self.base_url + method, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                body = json.loads(resp.read().decode("utf-8") or "{}")
+        except urllib.error.HTTPError as e:
+            raise SlackApiError(f"{method}: HTTP {e.code} {e.read().decode('utf-8', 'ignore')[:200]}") from e
+        if not body.get("ok"):
+            raise SlackApiError(f"{method}: {body.get('error', 'unknown_error')}")
+        return body
+
+    def chat_postMessage(self, channel: str, text: str, icon_emoji: str | None = None) -> dict:
+        payload = {"channel": channel, "text": text}
+        if icon_emoji:
+            payload["icon_emoji"] = icon_emoji  # 反映には chat:write.customize スコープが必要（無ければ無視される）
+        return self._api("chat.postMessage", json_body=payload)
+
+    def files_upload_v2(self, channel: str, file, filename: str, initial_comment: str = "", title: str | None = None) -> dict:
+        """files.getUploadURLExternal → アップロード URL へ本体を POST → files.completeUploadExternal の 3 段階。
+        slack_sdk の files_upload_v2 と同じ手順。"""
+        data = file.read() if hasattr(file, "read") else bytes(file)
+        got = self._api("files.getUploadURLExternal", form={"filename": filename, "length": str(len(data))})
+        req = urllib.request.Request(got["upload_url"], data=data, method="POST",
+                                     headers={"Content-Type": "application/octet-stream"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                if resp.status // 100 != 2:
+                    raise SlackApiError(f"upload_url: HTTP {resp.status}")
+        except urllib.error.HTTPError as e:
+            raise SlackApiError(f"upload_url: HTTP {e.code}") from e
+        return self._api("files.completeUploadExternal", json_body={
+            "files": [{"id": got["file_id"], "title": title or filename}],
+            "channel_id": channel,
+            "initial_comment": initial_comment,
+        })
+
+
+def _slack() -> tuple[SlackClient, str]:
     sec = secrets.get_secret_value(SecretId=SLACK_SECRET_NAME)["SecretString"]
     data = json.loads(sec)
-    return WebClient(token=data["bot_token"]), data["channel_id"]
+    return SlackClient(token=data["bot_token"]), data["channel_id"]
 
+
+# ----- S3 helpers -------------------------------------------------------------------
 def _latest_report():
     """最新（LastModified 最大）のレポートのベースキーと更新時刻を返す。無ければ (None, None)。"""
     p = s3.get_paginator("list_objects_v2")

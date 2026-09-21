@@ -5,8 +5,7 @@ import { CheckRiskStack, CheckRiskStackProps } from '../lib/checkrisk-cdk-stack'
 const SRC = 'https://raw.githubusercontent.com/example/checkRisk/0123456789abcdef/checkRisk.sh';
 
 function synth(overrides: Partial<CheckRiskStackProps> = {}): Template {
-  // Lambda のバンドル（Docker）を走らせずにテンプレートだけ生成する
-  const app = new cdk.App({ context: { 'aws:cdk:bundling-stacks': [] } });
+  const app = new cdk.App();
   const stack = new CheckRiskStack(app, 'TestStack', {
     sourceUrl: SRC,
     slackSecretName: 'slack/bot',
@@ -121,7 +120,8 @@ describe('Slack 通知 Lambda', () => {
     const t = synth();
     t.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'aws-risk-weekly-slack',
-      Environment: { Variables: Match.objectLike({ SLACK_SECRET_NAME: 'slack/bot', S3_BUCKET: Match.anyValue() }) },
+      Handler: 'lambda_function.handler',
+      Environment: { Variables: Match.objectLike({ SLACK_SECRET_NAME: 'slack/bot', S3_BUCKET: Match.anyValue(), MAX_REPORT_AGE_HOURS: '24' }) },
     });
   });
 
