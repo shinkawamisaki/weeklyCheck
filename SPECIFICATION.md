@@ -1,180 +1,141 @@
 <!--
-SPDX-License-Identifier: LicenseRef-NC-Shinkawa-Only
+SPDX-License-Identifier: LicenseRef-Shinkawa-NC-1.1
 Copyright (c) 2025 Shinkawa
 -->
 
-<!--
-Copyright (c) 2025 Shinkawa
--->
-
-# システム仕様書: AWS Risk Weekly CDK
+# システム仕様書: AWS Risk Weekly (CDK)
 
 ## 1. 概要
 
-本システムは、指定されたシェルスクリプト (`checkRisk.sh`) を週次で自動実行し、結果の要約をSlackに通知することを目的とした、AWS CDKによるサーバーレスアプリケーションです。
+指定したシェルスクリプト（`checkRisk.sh`）を週次で自動実行し、結果の要約を Slack に通知する AWS CDK アプリケーション。
 
 ### 1.1. 技術スタック
 
-- **Infrastructure as Code:** AWS CDK (TypeScript)
-- **実行環境:** AWS CodeBuild (ECS/Fargateなどへの拡張を想定した設計)
-- **通知処理:** AWS Lambda (Python 3.11)
+- **Infrastructure as Code:** AWS CDK v2（TypeScript）
+- **実行環境:** AWS CodeBuild（`aws/codebuild/standard:8.0`、BUILD_GENERAL1_SMALL）
+- **通知処理:** AWS Lambda（Python 3.13、外部ライブラリなし）
 - **成果物保管:** Amazon S3
-- **スケジュール実行 & イベント連携:** Amazon EventBridge
+- **スケジュール実行・イベント連携:** Amazon EventBridge
 - **認証情報管理:** AWS Secrets Manager
 
 ## 2. アーキテクチャ
 
-本システムは、将来的な機能変更や拡張を容易にするため、役割ごとにコンポーネント化されたCDKコンストラクトで構築されています。特に、スクリプト実行環境は`IRunner`インターフェースによって抽象化されており、`CodeBuildRunner`や`EcsRunner`といった具体的な実装を容易に切り替えられる設計になっています。
+役割ごとのコンストラクトを `CheckRiskStack`（`lib/checkrisk-cdk-stack.ts`）が組み合わせる。
+実行環境は `IRunner` インターフェースで抽象化されており、`Scheduler` と `Notifier` は CodeBuild か ECS かを知らない。
 
-メインのCDKスタック (`CheckRiskStack`) が、これらのコンストラクトを組み合わせてインフラ全体を構築します。
+### 2.1. `Storage`（`lib/constructs/store.ts`）
 
-### 2.1. `Storage` コンストラクト
+- `s3.Bucket` を 1 つ作る。名前は `<projectName>-<accountId>-<region>`
+- バージョニング有効、SSE-S3、`enforceSSL`（TLS 以外を拒否）、公開アクセスは全ブロック
+- ライフサイクル: 現行オブジェクトは `retentionDays`（既定 365）で削除、旧バージョンは 30 日、未完了マルチパートは 7 日で破棄
+- `retain` が false（既定）のとき `RemovalPolicy.DESTROY` と `autoDeleteObjects`。true のとき `RETAIN`
+- 出力: `bucket`
 
-- **ファイル:** `lib/constructs/store.ts`
-- **役割:** レポートなどの成果物を保管するS3バケットを作成します。
-- **リソース:**
-    - `s3.Bucket`: 成果物保管用のS3バケット。
-- **主な仕様:**
-    - オブジェクトのバージョン管理: 有効。
-    - サーバーサイド暗号化: 有効 (AES-256)。
-    - スタック削除時の自動削除: 有効 (デモ・開発用設定)。
-- **出力 (Public Properties):**
-    - `bucket: s3.Bucket`: 作成されたS3バケットのインスタンス。他のコンストラクトが参照するために公開されます。
+### 2.2. Runner
 
-### 2.2. 実行環境 (Runner)
+#### 2.2.1. `IRunner`（`lib/constructs/runner.ts`）
 
-#### 2.2.1. `IRunner` インターフェース
-- **ファイル:** `lib/constructs/runner.ts`
-- **役割:** スクリプト実行環境の共通インターフェースを定義します。これにより、`Scheduler`は具体的な実行環境（CodeBuild, ECSなど）を意識することなく、処理をトリガーできます。
-- **インターフェースの主なプロパティ:**
-    - `startTarget: events.IRuleTarget`: EventBridgeが実行を開始するためのターゲット。
-    - `runnerName: string`: イベントフィルタリングに使用される、実行環境の一意な名前。
+| プロパティ | 型 | 意味 |
+| --- | --- | --- |
+| `startTarget` | `events.IRuleTarget` | スケジュールルールから起動するためのターゲット |
+| `runnerName` | `string` | 実行環境の一意な名前 |
+| `successEventPattern` | `events.EventPattern` | 正常終了を表すイベントパターン |
+| `failureEventPattern` | `events.EventPattern` | 異常終了（失敗・停止・タイムアウトなど）を表すイベントパターン |
 
-#### 2.2.2. `CodeBuildRunner` コンストラクト
-- **ファイル:** `lib/constructs/codebuild-runner.ts`
-- **役割:** `IRunner`インターフェースのCodeBuild実装。`checkRisk.sh` をダウンロードし、クリーンなサーバーレス環境で実行します。
-- **リソース:**
-    - `codebuild.Project`: スクリプトの実行環境となるCodeBuildプロジェクト。
-    - `iam.Role`: CodeBuildプロジェクトに割り当てるIAMロール。
-- **入力 (Props):**
-    - `artifactBucket: s3.Bucket`: `Storage`コンストラクトが作成したS3バケット。
-    - `sourceUrl: string`: 実行対象である `checkRisk.sh` のURL。
-    - `slackSecretName`, `openAiSecretName`, `githubPatSecretName`: (任意) Secrets Managerから認証情報を取得するためのシークレット名。
-- **IAMロール権限:**
-    - `SecurityAudit` (AWSマネージドポリシー)。
-    - `artifactBucket` に対するS3読み書き権限。
-    - 各種Secretに対する `secretsmanager:GetSecretValue` 権限。
+#### 2.2.2. `CodeBuildRunner`（`lib/constructs/codebuild-runner.ts`）
 
-### 2.3. `Notifier` コンストラクト
+- `codebuild.Project` と IAM ロールを作る。ソースは `assets/buildspec/` を S3 アセットとして渡す
+- 入力: `projectName`, `sourceUrl`, `scriptSha256?`, `artifactBucket`, `polishWithOpenAi?`, `openAiSecretName?`, `githubPatSecretName?`
+- CodeBuild の環境変数: `REPORTS_BUCKET`, `SRC_URL`, `SRC_SHA256`（指定時）, `POLISH_WITH_OPENAI`/`OPENAI_SECRET_NAME`（整形有効時）, `GITHUB_PAT_SECRET_NAME`（指定時）
+- IAM: `SecurityAudit`、アーティファクトバケットの読み書き、`secretsmanager:GetSecretValue` は **OpenAI（整形有効時）と GitHub PAT（指定時）だけ**。Slack のシークレットは付与しない
+- イベントパターン: `source=aws.codebuild`, `detail-type=CodeBuild Build State Change`, `project-name` 一致。成功は `build-status=SUCCEEDED`、失敗は `FAILED | FAULT | STOPPED | TIMED_OUT`
 
-- **ファイル:** `lib/constructs/notifier.ts`
-- **役割:** S3に保存されたレポートを解析し、整形した上でSlackに通知します。
-- **リソース:**
-    - `lambda.Function`: Pythonで記述されたLambda関数。
-    - `iam.Role`: Lambda関数に割り当てるIAMロール。
-    - `logs.LogGroup`: Lambda関数のロググループ。
-- **入力 (Props):**
-    - `artifactBucket: s3.Bucket`: レポートが保管されているS3バケット。
-    - `slackSecretName: string`: Slack認証情報が格納されているシークレット名。
-- **出力 (Public Properties):**
-    - `func: lambda.IFunction`: 作成されたLambda関数のインスタンス。`Scheduler`がターゲットとして参照するために公開されます。
-- **IAMロール権限:**
-    - `AWSLambdaBasicExecutionRole` (AWSマネージドポリシー)。
-    - `artifactBucket` に対するS3読み取り権限。
-    - `slackSecretName` に対する `secretsmanager:GetSecretValue` 権限。
+#### 2.2.3. `EcsRunner`（`lib/constructs/ecs-runner.ts`）
 
-### 2.4. `Scheduler` コンストラクト
+ECS/Fargate 実装の骨組み。未実装で、コンストラクタで例外を投げる。
 
-- **ファイル:** `lib/constructs/schedule.ts`
-- **役割:** システム全体の実行を自動化し、コンポーネント間を連携させます。
-- **リソース:**
-    - `events.Rule` (2つ): スケジュール実行とイベント駆動を実現するEventBridgeルール。
-- **入力 (Props):**
-    - `runner: IRunner`: `CodeBuildRunner`など、`IRunner`インターフェースを実装した実行環境のインスタンス。
-    - `notifierFunction: lambda.IFunction`: `Notifier`が作成したLambda関数。
-- **ルール詳細:**
-    - **週次実行ルール:** 毎週月曜日の00:00 (UTC) に `runner.startTarget` をトリガーします。
-    - **成功時ルール:** `runner` の実行が `SUCCEEDED` になったことを検知（`runner.runnerName`でフィルタリング）し、`notifierFunction` をトリガーします。
+### 2.3. `Notifier`（`lib/constructs/notifier.ts`）
 
-## 3. プロジェクトファイル構造
+- `lambda.Function`（`lambda/lambda_function.py`、`Code.fromAsset`、バンドルなし）と IAM ロール、ロググループ（保持 1 か月）を作る
+- 環境変数: `S3_BUCKET`, `S3_PREFIX`（空）, `SLACK_SECRET_NAME`, `MAX_REPORT_AGE_HOURS`（既定 24）, `POLISH_WITH_OPENAI`（整形有効時のみ `true`）
+- IAM: `AWSLambdaBasicExecutionRole`、アーティファクトバケットの読取、Slack シークレットの `GetSecretValue`
+- 出力: `func`
 
-- `bin/checkrisk-cdk.ts`: CDKアプリケーションのエントリーポイント。
-- `lib/checkrisk-cdk-stack.ts`: メインのCDKスタック。各コンストラクトを組み合わせてインフラ全体を定義します。
-- `lib/constructs/`: 再利用可能なコンストラクト（部品）を格納するディレクトリ。
-    - `runner.ts`: `IRunner`インターフェースの定義。
-    - `codebuild-runner.ts`: `IRunner`のCodeBuild実装。
-    - `ecs-runner.ts`: 将来的なECS実装のためのスケルトン。
-    - `notifier.ts`: Slack通知Lambdaを定義するコンストラクト。
-    - `schedule.ts`: EventBridgeルールを定義するコンストラクト。
-    - `store.ts`: S3バケットを定義するコンストラクト。
-- `assets/buildspec/buildspec.yml`: CodeBuildが実行するビルドコマンドを定義したファイル。
-- `lambda/`: Lambda関数のPythonソースコードと依存関係ファイルを格納するディレクトリ。
-- `DEPLOY_GUIDE.md`: プロジェクトのデプロイ手順書。
-- `SPECIFICATION.md`: このドキュメントです。
+### 2.4. `Scheduler`（`lib/constructs/schedule.ts`）
+
+EventBridge ルールを 3 つ作る。
+
+| ルール | 条件 | ターゲット |
+| --- | --- | --- |
+| `<projectName>-weekly-cron` | `cron(0 0 ? * MON *)`（月曜 00:00 UTC = JST 09:00）。`schedule` で変更可 | `runner.startTarget` |
+| `<projectName>-on-success` | `runner.successEventPattern` | Notifier Lambda（`outcome: "success"`） |
+| `<projectName>-on-failure` | `runner.failureEventPattern` | Notifier Lambda（`outcome: "failure"`） |
+
+Lambda への入力は InputTransformer で次の形にする。`detail` は元イベントの `detail` をそのまま埋め込む。
+
+```json
+{ "outcome": "success" | "failure", "runner": "<runnerName>", "detail": { ...元イベントの detail... } }
+```
+
+再試行は 1 回、イベントの最大保持は 2 時間（既定の 185 回/24 時間だと Slack 側の一時障害で同じ通知が繰り返されるため）。
+
+## 3. CodeBuild の処理（`assets/buildspec/buildspec.yml`）
+
+1. `jq` と `curl` が無ければ apt で入れる（標準イメージには入っている）
+2. `GITHUB_PAT_SECRET_NAME` が設定されていれば PAT を取得し（文字列そのもの、または `{"token": ...}`）、`Authorization: token` 付きで `SRC_URL` を取得。取得後に PAT は unset する
+3. `SRC_SHA256` が設定されていれば `sha256sum -c` で照合し、不一致なら exit 3
+4. `bash ./checkRisk.sh` を実行。OpenAI の API キーは buildspec では扱わない（checkRisk.sh が整形有効時に自分で Secrets Manager から読む）
+5. `output/checkRiskReport_*.md` をカレントに移し、アーティファクト（`checkRiskReport_*.md`）としてバケット直下に置く
 
 ## 4. 設定項目
 
-本システムのデプロイと実行には、いくつかの事前設定が必要です。詳細は `DEPLOY_GUIDE.md` を参照してください。
+| 変数（.env） | 既定 | 用途 |
+| --- | --- | --- |
+| `SCRIPT_SOURCE_URL` | （必須） | 実行するスクリプトの Raw URL。コミット SHA かタグで固定 |
+| `SCRIPT_SHA256` | なし | スクリプトの SHA-256。16 進 64 桁。指定時は照合 |
+| `POLISH_WITH_OPENAI` | `0` | `1`/`true` で OpenAI 整形 |
+| `SLACK_SECRET_NAME` | `slack/bot` | `{"bot_token": "...", "channel_id": "..."}` を格納したシークレット |
+| `OPENAI_SECRET_NAME` | `openai/prod/key` | API キー文字列そのものを格納したシークレット |
+| `GITHUB_PAT_SECRET_NAME` | なし | 指定時のみ PAT を取得 |
+| `REPORT_RETENTION_DAYS` | `365` | レポート保持日数 |
+| `RETAIN_BUCKET` | `0` | `1` でバケットを残す |
 
-- **AWS Secrets Manager:**
-    - `slack/bot`: SlackのBotトークンとチャンネルIDを格納する必須のシークレット。
-    - `openai/prod/key`: (任意) OpenAIのAPIキーを格納するシークレット。
-    - `github/pat`: (任意) プライベートリポジトリ用のGitHub PATを格納するシークレット。
-- **CDK設定ファイル (`bin/checkrisk-cdk.ts`):**
-    - `SCRIPT_SOURCE_URL`: 実行対象である `checkRisk.sh` のGitHub Raw URL。
-    - 上記シークレットの名前（デフォルトから変更した場合）。
+## 5. レポートファイル
 
-## 5. レポートファイルの命名規則
+checkRisk.sh が生成する `checkRiskReport_<YYYYMMDD_HHMMSS>.md`（JST）をそのままのキーでバケット直下に保存する。
+OpenAI 整形が有効なときは `checkRiskReport_<YYYYMMDD_HHMMSS>_polished.md` も並ぶ。バージョニングとライフサイクルで履歴を管理する。
 
-S3に保存されるレポートファイルは、`report_YYYYMMDD.md` (例: `report_20250925.md`) という形式で保存されます。これにより、過去のレポートが上書きされることなく、履歴として蓄積されます。
+## 6. Slack 通知（`lambda/lambda_function.py`）
 
-## 6. 機能仕様
+### 6.1. 処理の流れ
 
-### 6.1. Slack通知
+1. 入力の `outcome` を読む（無ければ `detail.build-status` から推定。`{}` で手動起動したときは success 扱い）
+2. **failure** なら「実行できませんでした」を 1 通投稿して終了
+3. **success** なら S3 の最新レポート（`LastModified` 最大）を探す。無い、または `MAX_REPORT_AGE_HOURS` より古ければ「今週のレポートが見つかりません」を投稿して終了
+4. 元レポートから `## サマリー` の件数を読む。`POLISH_WITH_OPENAI` が有効で `_polished.md` があれば添付をそれに替え、Top5 を抽出する
+5. 本文を投稿し、続けてレポートを添付する。添付だけ失敗したときは例外にせず、短い追記を投稿して終了する（EventBridge の再試行で本文が二重投稿されないように）
 
-Lambda関数によって送信されるSlack通知は、以下の仕様に基づいています。
+### 6.2. Slack API
 
-#### 6.1.1. 全体構成
+標準ライブラリ（`urllib`）で `chat.postMessage`、`files.getUploadURLExternal` → アップロード URL への POST → `files.completeUploadExternal` を呼ぶ。
+Bot に必要なスコープは `chat:write` と `files:write`。`icon_emoji` の反映には `chat:write.customize` が要る（無ければ無視される）。
 
-メッセージは、以下の要素で構成されます。
+### 6.3. 成功時の本文
 
-1.  **タイトル**
-2.  **挨拶文**
-3.  **判定メッセージ**（太字）
-4.  **件数サマリー**
-5.  **Top5 ブロック**（存在する場合のみ）
-6.  **添付ファイル**
+1. **タイトル**: `✅ AWS Risk Weekly (<AccountId>) — <YYYY-MM-DD>`（日付は JST）。絵文字は状態に関わらず固定
+2. **挨拶文**: 24 種の固定リストから週替わりで 1 つ。基準日 2025-09-29（月）からの経過週数 `% 24` で選ぶ（暦年に依存しないので年末年始で同じ挨拶が続かない）
+3. **判定行**（太字）: Critical ≥ 1 → `🚨 クリティカルリスクあり。対応をお願いします。` / High ≥ 1 → `⚠️ ハイリスク項目あり。対応を推奨します。` / それ以外 → `🟢 重大なリスクはありませんでした`
+4. **件数**: `- Critical / High / Medium / Low`（常に元レポートから読む）
+5. **Top5**（あれば）: 見出し `### … 今すぐ対応 … Top5 …` の行から次の `#`/`##` 見出しまで。checkRisk の旧見出し `### ■ 今すぐ対応 Top5 ■` と新見出し `### 🔴 今すぐ対応（Top5）` の両方に対応
+6. **添付**: レポートの Markdown。コメントは `:memo: レポート（Markdown）を添付します。`
 
-#### 6.1.2. 各要素の詳細
+### 6.4. 失敗時の本文
 
--   **タイトル**:
-    -   フォーマット: `✅ AWS Risk Weekly (<AccountId>) — <YYYY-MM-DD>`
-    -   日付はUTC基準で生成されます。
+タイトルと挨拶は成功時と同じ。判定行は `⚠️ 今週のチェックは実行できませんでした（<理由>）。` で、続けて「リスクの有無はまだ判定できていません」、ビルド ID、CloudWatch Logs のリンク（イベントに含まれる場合）を載せる。添付は無い。
 
--   **挨拶文**:
-    -   JST（日本標準時）を基準に、週替わりで24種類の固定リストから1つが選ばれます。
-    -   ローテーションロジック: `(JSTの年間通算日 - 1) // 7 % 24`
+理由は `CodeBuild: FAILED` のような実行状態、または `S3 に今週のレポートが見つかりません。最新は 2026-09-14 09:03`。
 
--   **判定メッセージ**:
-    -   リスクのレベルに応じて、以下のメッセージが**太字**で表示されます。
-        -   Critical ≥ 1: `*🚨 クリティカルリスクあり。対応をお願いします。*`
-        -   High ≥ 1 (かつ Critical==0): `*⚠️ ハイリスク項目あり。対応を推奨します。*`
-        -   上記以外: `*🟢 重大なリスクはありませんでした*`
+## 7. テスト
 
--   **Top5 ブロック**:
-    -   `checkRisk.sh` が生成したレポート（`_polished.md` または `*.md`）から、見出しと内容がそのまま抽出されて表示されます。
-    -   抽出される見出し: `### ■ 今すぐ対応 Top5 ■`
-
--   **添付ファイル**:
-    -   レポートのMarkdownファイルが添付されます。
-    -   添付ファイルのコメント: `:memo: レポート（Markdown）を添付します。`
-
-### 6.2. レポート生成 (`checkRisk.sh`)
-
-#### 6.2.1. OpenAIによる整形
-
--   `POLISH_WITH_OPENAI=true` の場合、OpenAI APIを利用してレポートの整形を試みます。
--   **プロンプトの指示**:
-    -   `### ■ 今すぐ対応 Top5 ■` という見出しでサマリーを生成するように指示します。
-    -   **文字化けを防ぐため、AIが絵文字を一切使用しないように、明示的に指示しています。**
-
+- `npm test`: `aws-cdk-lib/assertions` でテンプレートを検証（スケジュール、ルールと InputTransformer、IAM の範囲、環境変数、ランタイム/イメージ、バケット設定、Runner の差し替え）
+- `npm run test:lambda`: Python の `unittest`。レポート解析・判定・挨拶ローテーションに加え、ローカルの偽 Slack サーバーと偽 S3 でハンドラ全体を通す。AWS にも Slack にも接続しない
