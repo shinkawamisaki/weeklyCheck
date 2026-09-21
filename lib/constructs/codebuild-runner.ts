@@ -87,7 +87,8 @@ export class CodeBuildRunner extends Construct implements IRunner {
         packageZip: false,
       }),
       environment: {
-        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        // Ubuntu 24.04 (standard:8.0)。aws-cdk-lib 2.270 時点で定数が無いので ID 指定
+        buildImage: codebuild.LinuxBuildImage.fromCodeBuildImageId('aws/codebuild/standard:8.0'),
       },
       environmentVariables: environmentVariables,
     });

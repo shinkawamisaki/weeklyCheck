@@ -121,6 +121,7 @@ describe('Slack 通知 Lambda', () => {
     t.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'aws-risk-weekly-slack',
       Handler: 'lambda_function.handler',
+      Runtime: 'python3.13',
       Environment: { Variables: Match.objectLike({ SLACK_SECRET_NAME: 'slack/bot', S3_BUCKET: Match.anyValue(), MAX_REPORT_AGE_HOURS: '24' }) },
     });
   });
@@ -131,6 +132,15 @@ describe('Slack 通知 Lambda', () => {
     expect(stmts).toContain('slack/bot');
     expect(stmts).not.toContain('openai/prod/key');
     expect(stmts).not.toContain('github/pat');
+  });
+});
+
+describe('CodeBuild の実行環境', () => {
+  test('Ubuntu 24.04 (standard:8.0) の小さいインスタンスで動く', () => {
+    const t = synth();
+    t.hasResourceProperties('AWS::CodeBuild::Project', {
+      Environment: Match.objectLike({ Image: 'aws/codebuild/standard:8.0', ComputeType: 'BUILD_GENERAL1_SMALL' }),
+    });
   });
 });
 

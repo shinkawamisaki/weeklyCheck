@@ -49,7 +49,7 @@ export class Notifier extends Construct {
             code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda'), {
                 exclude: ['__pycache__', '*.pyc', 'requirements.txt'],
             }),
-            runtime: lambda.Runtime.PYTHON_3_11,
+            runtime: lambda.Runtime.PYTHON_3_13,  // AL2023 系。3.11 は AL2 系で 2027-06-30 非推奨
             handler: 'lambda_function.handler',
             role: lambdaRole,
             environment: {
