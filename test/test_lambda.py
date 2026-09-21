@@ -89,5 +89,51 @@ class GreetingRotation(unittest.TestCase):
         self.assertEqual(lf.pick_greeting(lf.GREETINGS, monday), lf.pick_greeting(lf.GREETINGS, monday + timedelta(days=6)))
 
 
+class MessageBuilders(unittest.TestCase):
+    ACCOUNT = "123456789012"
+    TODAY = date(2026, 9, 21)
+
+    def test_success_message_has_title_greeting_banner_counts_and_top5(self):
+        lines = lf._extract_original_summary(fixture("report_sample.md"))
+        top5 = lf._extract_top5_block(fixture("report_polished_new_heading.md"))
+        body = lf.build_success_message(self.ACCOUNT, self.TODAY, lines, top5, "おはよう")
+        self.assertTrue(body.startswith(":white_check_mark: AWS Risk Weekly (123456789012) — 2026-09-21"))
+        self.assertIn("おはよう", body)
+        self.assertIn("🚨 クリティカルリスクあり", body)
+        self.assertIn("- Critical:  1", body)
+        self.assertIn("### 🔴 今すぐ対応（Top5）", body)
+
+    def test_success_message_without_summary_says_so(self):
+        body = lf.build_success_message(self.ACCOUNT, self.TODAY, [], "", "おはよう")
+        self.assertIn("🟢 重大なリスクはありませんでした", body)
+        self.assertIn("サマリーを抽出できませんでした", body)
+        self.assertNotIn("今すぐ対応", body)
+
+    def test_failure_message_keeps_fixed_title_and_says_unknown(self):
+        body = lf.build_failure_message(self.ACCOUNT, self.TODAY, "おはよう", "CodeBuild: FAILED",
+                                        build_id="arn:aws:codebuild:ap-northeast-1:123456789012:build/aws-risk-weekly:abc-123",
+                                        log_url="https://console.aws.amazon.com/cloudwatch/x")
+        self.assertTrue(body.startswith(":white_check_mark: AWS Risk Weekly (123456789012) — 2026-09-21"))
+        self.assertIn("⚠️ 今週のチェックは実行できませんでした（CodeBuild: FAILED）", body)
+        self.assertIn("判定できていません", body)
+        self.assertIn("`aws-risk-weekly:abc-123`", body)
+        self.assertIn("https://console.aws.amazon.com/cloudwatch/x", body)
+        self.assertNotIn("🚨", body)
+        self.assertNotIn("🟢", body)
+
+
+class OutcomeDetection(unittest.TestCase):
+    def test_outcome_from_rule_input(self):
+        self.assertEqual(lf._outcome_of({"outcome": "failure", "detail": {"build-status": "FAILED"}})[0], "failure")
+        self.assertEqual(lf._outcome_of({"outcome": "success", "detail": {"build-status": "SUCCEEDED"}})[0], "success")
+
+    def test_outcome_inferred_from_raw_codebuild_event(self):
+        self.assertEqual(lf._outcome_of({"detail": {"build-status": "TIMED_OUT"}})[0], "failure")
+        self.assertEqual(lf._outcome_of({"detail": {"build-status": "SUCCEEDED"}})[0], "success")
+
+    def test_manual_invocation_with_empty_event_is_success(self):
+        self.assertEqual(lf._outcome_of({})[0], "success")
+
+
 if __name__ == "__main__":
     unittest.main()

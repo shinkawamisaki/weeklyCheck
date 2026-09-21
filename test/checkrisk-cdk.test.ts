@@ -33,7 +33,7 @@ describe('スケジュールと連携', () => {
     });
   });
 
-  test('CodeBuild が SUCCEEDED になったら Slack 通知 Lambda を起動する', () => {
+  test('CodeBuild が SUCCEEDED になったら outcome=success で Slack 通知 Lambda を起動する', () => {
     const t = synth();
     t.hasResourceProperties('AWS::Events::Rule', {
       EventPattern: {
@@ -41,6 +41,33 @@ describe('スケジュールと連携', () => {
         'detail-type': ['CodeBuild Build State Change'],
         detail: Match.objectLike({ 'build-status': ['SUCCEEDED'] }),
       },
+      Targets: [Match.objectLike({
+        InputTransformer: Match.objectLike({
+          InputTemplate: { 'Fn::Join': ['', Match.arrayWith([Match.stringLikeRegexp('"outcome":"success"')])] },
+        }),
+        RetryPolicy: Match.objectLike({ MaximumRetryAttempts: 1 }),
+      })],
+    });
+  });
+
+  test('CodeBuild が失敗系の状態になったら outcome=failure で同じ Lambda を起動する', () => {
+    const t = synth();
+    t.hasResourceProperties('AWS::Events::Rule', {
+      EventPattern: {
+        source: ['aws.codebuild'],
+        'detail-type': ['CodeBuild Build State Change'],
+        detail: Match.objectLike({ 'build-status': ['FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT'] }),
+      },
+      Targets: [Match.objectLike({
+        InputTransformer: Match.objectLike({
+          InputPathsMap: Match.objectLike({ detail: '$.detail' }),
+          // detail は引用符なしで埋め込む（JSON オブジェクトごと Lambda に渡す）
+          InputTemplate: { 'Fn::Join': ['', Match.arrayWith([
+            Match.stringLikeRegexp('"outcome":"failure"'),
+            Match.stringLikeRegexp('"detail":<detail>\\}$'),
+          ])] },
+        }),
+      })],
     });
   });
 });
