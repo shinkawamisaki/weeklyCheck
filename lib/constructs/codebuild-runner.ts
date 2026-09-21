@@ -12,18 +12,23 @@ import { IRunner } from './runner';
 
 export interface CodeBuildRunnerProps {
   projectName: string;
+  /** 実行するスクリプトの Raw URL（コミット SHA かタグで固定すること） */
   sourceUrl: string;
+  /** sourceUrl のスクリプトの SHA-256（16 進 64 桁）。指定時はダウンロード後に照合し、不一致なら実行しない */
+  scriptSha256?: string;
   artifactBucket: s3.Bucket;
-  slackSecretName: string;
-  openAiSecretName?: string;
-  githubPatSecretName?: string;
+  /** OpenAI 整形を有効にする。有効なときだけ openAiSecretName の読取権限を付与する */
   polishWithOpenAi?: boolean;
+  openAiSecretName?: string;
+  /** 私有リポジトリから取得する場合の GitHub PAT シークレット名。未指定なら PAT は取得しない */
+  githubPatSecretName?: string;
 }
 
 export class CodeBuildRunner extends Construct implements IRunner {
   public readonly startTarget: events.IRuleTarget;
   public readonly runnerName: string;
-  public readonly env: { [key: string]: string };
+  public readonly successEventPattern: events.EventPattern;
+  public readonly failureEventPattern: events.EventPattern;
 
   private readonly project: codebuild.Project;
 
@@ -39,32 +44,37 @@ export class CodeBuildRunner extends Construct implements IRunner {
 
     props.artifactBucket.grantReadWrite(codeBuildRole);
 
-    const secretArns = [
-      `arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.slackSecretName}-*`,
-    ];
-    if (props.openAiSecretName) {
+    // Secrets Manager の読取は「実際に使うシークレット」だけに絞る。
+    // Slack のシークレットは Notifier(Lambda) だけが読むので CodeBuild には付与しない。
+    const secretArns: string[] = [];
+    const usesOpenAi = !!(props.polishWithOpenAi && props.openAiSecretName);
+    if (usesOpenAi) {
       secretArns.push(`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.openAiSecretName}-*`);
     }
     if (props.githubPatSecretName) {
       secretArns.push(`arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:${props.githubPatSecretName}-*`);
     }
-
-    codeBuildRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: secretArns,
-    }));
+    if (secretArns.length > 0) {
+      codeBuildRole.addToPolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: secretArns,
+      }));
+    }
 
     const buildSpecAsset = new s3_assets.Asset(this, 'BuildSpecAsset', {
       path: path.join(__dirname, '../../assets/buildspec'),
     });
 
-    const environmentVariables = {
+    const environmentVariables: { [name: string]: codebuild.BuildEnvironmentVariable } = {
       REPORTS_BUCKET: { value: props.artifactBucket.bucketName },
       SRC_URL: { value: props.sourceUrl },
-      GITHUB_PAT_SECRET_NAME: { value: props.githubPatSecretName || '' },
-      OPENAI_SECRET_NAME: { value: props.openAiSecretName || '' },
-      ...(props.polishWithOpenAi && { POLISH_WITH_OPENAI: { value: '1' } }),
+      ...(props.scriptSha256 && { SRC_SHA256: { value: props.scriptSha256 } }),
+      ...(props.githubPatSecretName && { GITHUB_PAT_SECRET_NAME: { value: props.githubPatSecretName } }),
+      ...(usesOpenAi && {
+        POLISH_WITH_OPENAI: { value: '1' },
+        OPENAI_SECRET_NAME: { value: props.openAiSecretName! },
+      }),
     };
 
     this.project = new codebuild.Project(this, 'CheckRiskProject', {
@@ -79,22 +89,26 @@ export class CodeBuildRunner extends Construct implements IRunner {
         path: '',
         includeBuildId: false,
         packageZip: false,
-
       }),
       environment: {
-        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        // Ubuntu 24.04 (standard:8.0)。aws-cdk-lib 2.270 時点で定数が無いので ID 指定
+        buildImage: codebuild.LinuxBuildImage.fromCodeBuildImageId('aws/codebuild/standard:8.0'),
       },
       environmentVariables: environmentVariables,
     });
 
-    // Populate IRunner interface properties
+    // IRunner の実装: 起動ターゲットと、終了状態を表すイベントパターン
     this.startTarget = new targets.CodeBuildProject(this.project);
     this.runnerName = this.project.projectName;
-    this.env = Object.entries(environmentVariables).reduce((acc, [key, val]) => {
-        if (val.value) {
-            acc[key] = val.value;
-        }
-        return acc;
-    }, {} as { [key: string]: string });
+    const statePattern = (statuses: string[]): events.EventPattern => ({
+      source: ['aws.codebuild'],
+      detailType: ['CodeBuild Build State Change'],
+      detail: {
+        'build-status': statuses,
+        'project-name': [this.project.projectName],
+      },
+    });
+    this.successEventPattern = statePattern(['SUCCEEDED']);
+    this.failureEventPattern = statePattern(['FAILED', 'FAULT', 'STOPPED', 'TIMED_OUT']);
   }
 }

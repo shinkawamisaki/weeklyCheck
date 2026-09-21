@@ -1,7 +1,6 @@
 import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { PythonFunction } from '@aws-cdk/aws-lambda-python-alpha';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as cdk from 'aws-cdk-lib';
 import * as path from 'path';
@@ -12,6 +11,8 @@ export interface NotifierProps {
     artifactBucket: s3.Bucket;
     slackSecretName: string;
     polishWithOpenAi?: boolean;
+    /** 成功イベント時に、これより古いレポートしか無ければ「見つからない」扱いにする（既定 24 時間） */
+    maxReportAgeHours?: number;
 }
 
 export class Notifier extends Construct {
@@ -42,17 +43,20 @@ export class Notifier extends Construct {
             removalPolicy: cdk.RemovalPolicy.DESTROY,
         });
 
-        this.func = new PythonFunction(this, 'SlackNotifierFunction', {
+        // 外部ライブラリを使わない（標準ライブラリ + 同梱 boto3）ので、Docker でのバンドル無しに zip できる
+        this.func = new lambda.Function(this, 'SlackNotifierFunction', {
             functionName: `${props.projectName}-slack`,
-            entry: path.join(__dirname, '../../lambda'),
-            runtime: lambda.Runtime.PYTHON_3_11,
-            handler: 'handler',
-            index: 'lambda_function.py',
+            code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda'), {
+                exclude: ['__pycache__', '*.pyc', 'requirements.txt'],
+            }),
+            runtime: lambda.Runtime.PYTHON_3_13,  // AL2023 系。3.11 は AL2 系で 2027-06-30 非推奨
+            handler: 'lambda_function.handler',
             role: lambdaRole,
             environment: {
                 S3_BUCKET: props.artifactBucket.bucketName,
                 S3_PREFIX: '',
                 SLACK_SECRET_NAME: props.slackSecretName,
+                MAX_REPORT_AGE_HOURS: String(props.maxReportAgeHours ?? 24),
                 ...(props.polishWithOpenAi && { POLISH_WITH_OPENAI: 'true' }),
             },
             timeout: cdk.Duration.minutes(1),

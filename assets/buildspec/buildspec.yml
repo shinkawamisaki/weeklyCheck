@@ -1,36 +1,56 @@
 version: 0.2
+
+# CodeBuild 上で checkRisk.sh を取得して実行し、レポート (Markdown) をアーティファクトとして S3 に置く。
+#
+# 環境変数（CDK が CodeBuild プロジェクトに設定する）
+#   SRC_URL                 実行するスクリプトの Raw URL（コミット SHA かタグで固定）
+#   SRC_SHA256              そのスクリプトの SHA-256。設定時はダウンロード後に照合し、不一致なら実行しない
+#   GITHUB_PAT_SECRET_NAME  私有リポジトリから取得する場合だけ。Secrets Manager のシークレット名
+#                           （値は PAT 文字列そのもの、または {"token": "..."} の JSON）
+#   POLISH_WITH_OPENAI      "1" なら checkRisk.sh が OpenAI で整形する
+#   OPENAI_SECRET_NAME      その API キーを置いたシークレット名（値はキー文字列そのもの）
+#
+# OpenAI の API キーはここでは取得しない。checkRisk.sh が整形を有効にしたときだけ自分で
+# Secrets Manager から読み、環境変数に export せず curl にヘッダファイルで渡す設計になっている。
+# buildspec 側でも取得して export すると、その設計を素通りしてキーが子プロセス全体に見えてしまう。
+
 env:
   variables:
     SRC_URL: ""
+    SRC_SHA256: ""
     GITHUB_PAT_SECRET_NAME: ""
-    OPENAI_SECRET_NAME: ""
+    POLISH_WITH_OPENAI: "0"
+    OPENAI_SECRET_NAME: "openai/prod/key"
+
 phases:
   install:
     commands:
-      - apt-get update && apt-get install -y jq curl
-      - |
-        if [ -n "$GITHUB_PAT_SECRET_NAME" ]; then
-          if PAT_JSON=$(aws secretsmanager get-secret-value --secret-id "$GITHUB_PAT_SECRET_NAME" --query SecretString --output text 2>/dev/null); then
-            export AUTH_HEADER="Authorization: token $(echo "$PAT_JSON" | jq -r .token)"
-          else
-            echo "Optional secret $GITHUB_PAT_SECRET_NAME not found. Skipping."
-          fi
-        fi
-      - |
-        if [ -n "$OPENAI_SECRET_NAME" ]; then
-          if OAI_JSON=$(aws secretsmanager get-secret-value --secret-id "$OPENAI_SECRET_NAME" --query SecretString --output text 2>/dev/null); then
-            export OPENAI_API_KEY=$(echo "$OAI_JSON" | jq -r .OPENAI_API_KEY)
-          else
-            echo "Optional secret $OPENAI_SECRET_NAME not found. Skipping."
-          fi
-        fi
+      # 標準イメージには jq / curl が入っている。無いときだけ apt を使う（毎回 apt-get update しない）
+      - command -v jq >/dev/null && command -v curl >/dev/null || (apt-get update && apt-get install -y jq curl)
   build:
     commands:
       - test -n "$SRC_URL" || { echo "SRC_URL is empty"; exit 2; }
-      - curl -fsSL -H "${AUTH_HEADER:-}" "$SRC_URL" -o checkRisk.sh
+      - |
+        if [ -n "$GITHUB_PAT_SECRET_NAME" ]; then
+          RAW="$(aws secretsmanager get-secret-value --secret-id "$GITHUB_PAT_SECRET_NAME" --query SecretString --output text)"
+          PAT="$(printf '%s' "$RAW" | jq -r '.token // empty' 2>/dev/null || true)"
+          [ -n "$PAT" ] || PAT="$RAW"
+          curl -fsSL -H "Authorization: token $PAT" "$SRC_URL" -o checkRisk.sh
+          unset RAW PAT   # スクリプト本体に PAT を引き継がない
+        else
+          curl -fsSL "$SRC_URL" -o checkRisk.sh
+        fi
+      # 取得したものが固定したコミットの内容そのものか確かめる（URL 先が差し替えられても実行しない）
+      - |
+        if [ -n "$SRC_SHA256" ]; then
+          echo "$SRC_SHA256  checkRisk.sh" | sha256sum -c - || { echo "checkRisk.sh の SHA-256 が SRC_SHA256 と一致しません。実行を中止します"; exit 3; }
+        else
+          echo "SRC_SHA256 が未設定のため完全性チェックを省略します（.env に SCRIPT_SHA256 を設定することを推奨）"
+        fi
       - chmod +x ./checkRisk.sh
       - bash ./checkRisk.sh
       - mv output/checkRiskReport_*.md .
+
 artifacts:
   files:
     - 'checkRiskReport_*.md'

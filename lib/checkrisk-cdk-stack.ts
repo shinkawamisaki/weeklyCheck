@@ -9,10 +9,16 @@ import { Scheduler } from './constructs/schedule';
 export interface CheckRiskStackProps extends cdk.StackProps {
   projectName?: string;
   sourceUrl: string;
+  /** sourceUrl のスクリプトの SHA-256。指定すると CodeBuild がダウンロード後に照合する */
+  scriptSha256?: string;
   slackSecretName: string;
   openAiSecretName?: string;
   githubPatSecretName?: string;
   polishWithOpenAi?: boolean;
+  /** レポートの保持日数（既定 365） */
+  reportRetentionDays?: number;
+  /** true なら cdk destroy でレポートバケットを残す */
+  retainBucket?: boolean;
 }
 
 export class CheckRiskStack extends cdk.Stack {
@@ -24,6 +30,8 @@ export class CheckRiskStack extends cdk.Stack {
     // 1. Create the Storage layer (S3 Bucket)
     const storage = new Storage(this, 'Storage', {
       projectName: projectName,
+      retentionDays: props.reportRetentionDays,
+      retain: props.retainBucket,
     });
 
     // 2. Create the Runner layer (CodeBuildRunner)
@@ -31,10 +39,10 @@ export class CheckRiskStack extends cdk.Stack {
       projectName: projectName,
       artifactBucket: storage.bucket,
       sourceUrl: props.sourceUrl,
-      slackSecretName: props.slackSecretName,
+      scriptSha256: props.scriptSha256,
+      polishWithOpenAi: props.polishWithOpenAi,
       openAiSecretName: props.openAiSecretName,
       githubPatSecretName: props.githubPatSecretName,
-      polishWithOpenAi: props.polishWithOpenAi,
     });
 
     // 3. Create the Notifier layer (Lambda)
